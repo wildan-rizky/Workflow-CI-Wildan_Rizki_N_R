@@ -1,0 +1,126 @@
+# ============================================================
+# .github/workflows/ci.yml
+# Workflow CI — Membangun Sistem Machine Learning (Dicoding)
+# Kriteria 3 Skilled: Training + Simpan Artefak ke GitHub
+#
+# Trigger:
+#   - Push ke branch main
+#   - Manual dispatch (tombol "Run workflow" di GitHub Actions)
+# ============================================================
+
+name: CI — Training & Save Artifacts
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:          # Trigger manual dari GitHub UI
+    inputs:
+      n_estimators:
+        description: "Jumlah pohon Random Forest"
+        required: false
+        default: "100"
+      max_depth:
+        description: "Kedalaman maksimal pohon (kosongkan = None)"
+        required: false
+        default: "5"
+      min_samples_split:
+        description: "Minimum sampel untuk split"
+        required: false
+        default: "2"
+
+jobs:
+  train-and-save:
+    name: 🤖 Train Model & Save Artifacts
+    runs-on: ubuntu-latest
+
+    steps:
+      # --------------------------------------------------------
+      # 1. Checkout repository
+      # --------------------------------------------------------
+      - name: ⬇️ Checkout repository
+        uses: actions/checkout@v4
+
+      # --------------------------------------------------------
+      # 2. Setup Python
+      # --------------------------------------------------------
+      - name: 🐍 Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      # --------------------------------------------------------
+      # 3. Install dependencies
+      # --------------------------------------------------------
+      - name: 📦 Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install \
+            mlflow==2.19.0 \
+            scikit-learn \
+            pandas \
+            numpy \
+            matplotlib
+
+      # --------------------------------------------------------
+      # 4. Jalankan Preprocessing
+      # --------------------------------------------------------
+      - name: 🔄 Run Preprocessing
+        run: |
+          python automate_Wildan.py
+        working-directory: Eksperimen_SML_Wildan
+
+      # --------------------------------------------------------
+      # 5. Jalankan Training via MLflow Project
+      # --------------------------------------------------------
+      - name: 🏋️ Run MLflow Training
+        env:
+          N_ESTIMATORS:      ${{ github.event.inputs.n_estimators || '100' }}
+          MAX_DEPTH:         ${{ github.event.inputs.max_depth || '5' }}
+          MIN_SAMPLES_SPLIT: ${{ github.event.inputs.min_samples_split || '2' }}
+        run: |
+          mlflow run MLProject/ \
+            --env-manager=local \
+            -P n_estimators=$N_ESTIMATORS \
+            -P max_depth=$MAX_DEPTH \
+            -P min_samples_split=$MIN_SAMPLES_SPLIT
+
+      # --------------------------------------------------------
+      # 6. Upload Artefak ke GitHub (Actions Artifacts)
+      # --------------------------------------------------------
+      - name: 📤 Upload MLflow Artifacts to GitHub
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlflow-artifacts-${{ github.run_number }}
+          path: |
+            mlruns/
+            Eksperimen_SML_Wildan/data/
+          retention-days: 30
+
+      # --------------------------------------------------------
+      # 7. Commit data hasil preprocessing ke repo (opsional)
+      # --------------------------------------------------------
+      - name: 💾 Commit processed data to repository
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Eksperimen_SML_Wildan/data/ || true
+          git diff --staged --quiet || git commit -m "chore: update processed dataset [CI run #${{ github.run_number }}]"
+          git push || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # --------------------------------------------------------
+      # 8. Summary
+      # --------------------------------------------------------
+      - name: 📋 Print Summary
+        run: |
+          echo "### ✅ CI Pipeline Selesai!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Parameter | Nilai |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| n_estimators | ${{ github.event.inputs.n_estimators || '100' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| max_depth | ${{ github.event.inputs.max_depth || '5' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| min_samples_split | ${{ github.event.inputs.min_samples_split || '2' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Artefak tersimpan selama 30 hari di **Actions → Artifacts**" >> $GITHUB_STEP_SUMMARY
